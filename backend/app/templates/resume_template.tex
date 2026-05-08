@@ -11,10 +11,12 @@
 \usepackage{fancyhdr}
 \usepackage[english]{babel}
 \usepackage{tabularx}
+\usepackage{ragged2e}
+\usepackage[T1]{fontenc}
 \input{glyphtounicode}
 
 \pagestyle{fancy}
-\fancyhf{} % clear all header and footer fields
+\fancyhf{}
 \fancyfoot{}
 \renewcommand{\headrulewidth}{0pt}
 \renewcommand{\footrulewidth}{0pt}
@@ -32,45 +34,52 @@
 \raggedright
 \setlength{\tabcolsep}{0in}
 
-% Sections formatting
+% Sections formatting — reduced negative spacing to prevent overlap
 \titleformat{\section}{
-  \vspace{-4pt}\scshape\raggedright\large
-}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+  \vspace{-2pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-3pt}]
 
-% Ensure that generate pdf is machine readable/ATS parsable
+% ATS parsable
 \pdfgentounicode=1
 
 %-------------------------
 % Custom commands
+
+% Resume bullet item — no extra negative vspace
 \newcommand{\resumeItem}[1]{
-  \item\small{
-    {#1 \vspace{-2pt}}
-  }
+  \item\small{#1}
 }
 
+% Education / Experience heading — uses p{} column for wrapping
 \newcommand{\resumeSubheading}[4]{
-  \vspace{-2pt}\item
-    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+  \item
+    \begin{tabularx}{0.95\textwidth}{@{}p{0.75\textwidth} r@{}}
       \textbf{#1} & #2 \\
       \textit{\small#3} & \textit{\small #4} \\
-    \end{tabular*}\vspace{-7pt}
+    \end{tabularx}\vspace{-3pt}
 }
 
-\newcommand{\resumeProjectHeading}[2]{
+% Project heading — uses X column for auto-wrapping long titles
+\newcommand{\resumeProjectHeading}[2]{%
     \item
-    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
-      \small#1 & #2 \\
-    \end{tabular*}\vspace{-7pt}
+    \begin{tabularx}{0.95\textwidth}{@{}X r@{}}
+      \small\textbf{#1} & #2 \\
+    \end{tabularx}\vspace{-2pt}
 }
 
-\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}
+% Tech stack on a separate line under project heading — parbox prevents overflow
+\newcommand{\resumeProjectTech}[1]{%
+    \parbox[t]{0.95\textwidth}{\textit{\small #1}}\vspace{-2pt}
+}
+
+\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-2pt}}
 
 \renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
 
 \newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
 \newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
 \newcommand{\resumeItemListStart}{\begin{itemize}}
-\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+\newcommand{\resumeItemListEnd}{\end{itemize}}
 
 %-------------------------------------------
 %%%%%%  RESUME STARTS HERE  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -79,56 +88,44 @@
 \begin{document}
 
 %----------HEADING----------
+% Use labeled hyperlinks: \href{url}{\underline{Label}}
+% Separate links with $|$ delimiters
 \begin{center}
-    \textbf{\Huge \scshape {{ personal_info.name }}} \\ \vspace{1pt}
-    \small {{ personal_info.phone }} $|$ \href{mailto:{{ personal_info.email }}}{\underline{ {{ personal_info.email }} }} $|$ 
-    {% for link in personal_info.links %}
-        \href{ {{ link }} }{\underline{ {{ link }} }} {% if not loop.last %}$|$ {% endif %}
-    {% endfor %}
+    \textbf{\Huge \scshape John Doe} \\ \vspace{1pt}
+    \small +1 555-0100 $|$ \href{mailto:john@example.com}{\underline{john@example.com}} $|$
+    \href{https://linkedin.com/in/johndoe}{\underline{LinkedIn}} $|$
+    \href{https://github.com/johndoe}{\underline{GitHub}}
 \end{center}
 
 %-----------EDUCATION-----------
 \section{Education}
   \resumeSubHeadingListStart
-    {% for edu in education %}
     \resumeSubheading
-      { {{ edu.institution }} }{ {{ edu.location if edu.location else '' }} }
-      { {{ edu.degree }} }{ {{ edu.start_date }} -- {{ edu.end_date }} }
-    {% endfor %}
-  \resumeSubHeadingListEnd
-
-%-----------EXPERIENCE-----------
-\section{Experience}
-  \resumeSubHeadingListStart
-    {% for exp in experience %}
-    \resumeSubheading
-      { {{ exp.company }} }{ {{ exp.location if exp.location else '' }} }
-      { {{ exp.role }} }{ {{ exp.start_date }} -- {{ exp.end_date }} }
-      \resumeItemListStart
-        {% for highlight in exp.highlights %}
-        \resumeItem{ {{ highlight }} }
-        {% endfor %}
-      \resumeItemListEnd
-    {% endfor %}
+      {University Name}{City, State}
+      {Bachelor of Technology in Computer Science}{2020 -- 2024}
   \resumeSubHeadingListEnd
 
 %-----------PROJECTS-----------
+% For long tech stacks, put title in \resumeProjectHeading and tech on next line via \resumeProjectTech
 \section{Projects}
     \resumeSubHeadingListStart
-      {% for project in projects %}
       \resumeProjectHeading
-          {\textbf{ {{ project.title }} } $|$ \emph{ {{ project.technologies|join(', ') }} }}{}
+          {\textbf{Project Name}}{}
+          \resumeProjectTech{Python, TensorFlow, Docker, FastAPI, HuggingFace}
           \resumeItemListStart
-            \resumeItem{ {{ project.description }} }
+            \resumeItem{Built something useful with real tools and real impact.}
           \resumeItemListEnd
-      {% endfor %}
     \resumeSubHeadingListEnd
 
 %-----------TECHNICAL SKILLS-----------
+% Split skills into clear sub-groups, keep each line short
 \section{Technical Skills}
  \begin{itemize}[leftmargin=0.15in, label={}]
     \small{\item{
-     \textbf{Skills}{: {{ skills|join(', ') }} } \\
+     \textbf{Languages}{: C/C++, Java, Python} \\
+     \textbf{ML/NLP}{: Machine Learning, Deep Learning, NLP} \\
+     \textbf{Frameworks}{: TensorFlow, PyTorch, LangChain, FastAPI, NumPy, Pandas} \\
+     \textbf{Tools}{: Docker, Git, VS Code, Jupyter Notebook, Kaggle}
     }}
  \end{itemize}
 

@@ -12,11 +12,18 @@ import os
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-# Initialize primary LLM based on settings
+# Fast LLM for analysis (small, quick)
 if settings.GROQ_API_KEY:
     logger.info("Using Groq API for inference")
     llm = ChatGroq(
         model_name="llama-3.1-8b-instant", 
+        groq_api_key=settings.GROQ_API_KEY,
+        temperature=0,
+        max_retries=2
+    )
+    # Strong LLM for LaTeX generation (larger model, better at structured output)
+    llm_latex = ChatGroq(
+        model_name="llama-3.3-70b-versatile",
         groq_api_key=settings.GROQ_API_KEY,
         temperature=0,
         max_retries=2
@@ -30,6 +37,7 @@ elif settings.USE_GEMINI and settings.GOOGLE_API_KEY:
         timeout=300,
         max_retries=2
     )
+    llm_latex = llm  # Gemini is already strong enough
 else:
     from langchain_ollama import ChatOllama
     logger.info(f"Using Ollama ({settings.OLLAMA_MODEL}) for inference")
@@ -38,6 +46,7 @@ else:
         base_url=settings.OLLAMA_BASE_URL,
         temperature=0,
     )
+    llm_latex = llm
 
 def analyze_resume(resume_text: str, jd_text: str) -> AnalysisResult:
     logger.info("Analyzing resume against JD")
@@ -82,13 +91,15 @@ def analyze_resume(resume_text: str, jd_text: str) -> AnalysisResult:
             "     GOOD: 'improving classification accuracy across the production pipeline'\n\n"
 
             "OUTPUT:\n"
-            "Return JSON:\n"
+            "Return JSON exactly matching this schema:\n"
             "- 'score': 0\n"
-            "- 'strengths': list of short strings (skill names or grouped names only)\n"
-            "- 'weaknesses': list of strings ('Skill — reason')\n"
-            "- 'gap_report': markdown string with sections ### Matched Skills, ### Missing Skills, ### Weak Bullets\n\n"
+            "- 'strengths': [list of short skill names from step 1]\n"
+            "- 'weaknesses': [list of missing skills from step 2, formatted exactly as 'Skill — reason']\n"
+            "- 'gap_report': markdown string with sections ### Matched Skills, ### Missing Skills, ### Weak Bullets (from step 3)\n\n"
 
-            "RULES:\n"
+            "CRITICAL RULES:\n"
+            "- Do NOT put weak bullets in the 'weaknesses' array. The 'weaknesses' array is ONLY for missing skills (e.g. 'Docker — Required for deployment').\n"
+            "- Keep 'strengths' very short (1-3 words per item).\n"
             "- Keep it concise. No walls of text.\n"
             "- No contradictions: if a skill is matched it cannot be missing.\n"
             "- No invented data. No placeholder brackets.\n"
@@ -118,6 +129,27 @@ def analyze_resume(resume_text: str, jd_text: str) -> AnalysisResult:
             gap_report=f"An error occurred during analysis: {str(e)}"
         )
 
+def _ensure_latex_complete(tex: str) -> str:
+    """Ensure LaTeX document is structurally complete."""
+    tex = tex.strip()
+    # Count open/close environments
+    opens = tex.count('\\begin{itemize}') + tex.count('\\resumeItemListStart') + tex.count('\\resumeSubHeadingListStart')
+    closes = tex.count('\\end{itemize}') + tex.count('\\resumeItemListEnd') + tex.count('\\resumeSubHeadingListEnd')
+    # Add missing closings
+    for _ in range(opens - closes):
+        tex += '\n\\end{itemize}'
+    if '\\begin{document}' in tex and '\\end{document}' not in tex:
+        tex += '\n\\end{document}'
+    return tex
+
+def _clean_latex_response(content: str) -> str:
+    """Strip markdown wrappers from LLM response."""
+    if "```latex" in content:
+        content = content.split("```latex")[1].split("```")[0].strip()
+    elif "```" in content:
+        content = content.split("```")[1].split("```")[0].strip()
+    return content
+
 def generate_latex(resume_text: str, jd_text: str) -> str:
     logger.info("Generating LaTeX code")
     
@@ -127,31 +159,35 @@ def generate_latex(resume_text: str, jd_text: str) -> str:
             template = f.read()
     except Exception as e:
         logger.error(f"Error reading template: {e}")
-        template = "Please use a standard, professional LaTeX resume format."
+        template = ""
 
     prompt = (
-        "You are an expert LaTeX developer. Your task is to rewrite the provided resume to better match the job description, "
-        "and output the final resume as completely valid, compilable LaTeX code.\n\n"
-        "RULES:\n"
-        "1. Return ONLY the raw LaTeX code.\n"
-        "2. Do NOT wrap the code in ```latex blocks.\n"
-        "3. Do NOT include any explanations or conversational text.\n"
-        "4. Use the provided template as a structural guide.\n\n"
-        f"--- TEMPLATE GUIDE ---\n{template}\n\n"
-        f"--- JOB DESCRIPTION ---\n{jd_text}\n\n"
-        f"--- ORIGINAL RESUME ---\n{resume_text}\n"
+        "You are a LaTeX resume generator. Output ONLY raw LaTeX code, no markdown wrappers.\n\n"
+
+        "CONTENT:\n"
+        "- Preserve all contact info (name, email, phone, URLs) character-for-character from the resume.\n"
+        "- Preserve all projects, experiences, education, and achievements exactly. Do NOT invent any.\n"
+        "- MUST add JD-relevant skills to Technical Skills (e.g. if JD needs Spring Boot, MySQL, Redis — add them).\n"
+        "- May rephrase bullet wording for impact, but keep all facts unchanged.\n"
+        "- Omit sections with zero entries (e.g. empty Experience).\n\n"
+
+        "FORMAT:\n"
+        "- Header: \\href{actual-url}{\\underline{Label}} with $|$ separators. Use real URLs from resume data.\n"
+        "- Skills: split into Languages / ML-NLP / Frameworks / Tools sub-groups.\n"
+        "- Capitalization: TensorFlow, PyTorch, NumPy, Scikit-Learn, Data Structures and Algorithms.\n"
+        "- Projects: title in \\resumeProjectHeading, tech stack on next line via \\resumeProjectTech.\n"
+        "- \\resumeSubheading takes exactly 4 args: {Title}{Location}{Subtitle}{Dates}.\n"
+        "- One page max. Start with \\documentclass, end with \\end{document}. Balance all environments.\n\n"
+
+        f"--- TEMPLATE ---\n{template}\n\n"
+        f"--- JD ---\n{jd_text[:2000]}\n\n"
+        f"--- RESUME ---\n{resume_text[:4000]}\n"
     )
 
     try:
-        response = llm.invoke([HumanMessage(content=prompt)])
-        content = response.content
-        
-        # Clean up any potential markdown formatting
-        if "```latex" in content:
-            content = content.split("```latex")[1].split("```")[0].strip()
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0].strip()
-            
+        response = llm_latex.invoke([HumanMessage(content=prompt)])
+        content = _clean_latex_response(response.content)
+        content = _ensure_latex_complete(content)
         return content
     except Exception as e:
         logger.error(f"Error generating LaTeX: {e}")
@@ -161,25 +197,22 @@ def edit_latex(tex_content: str, edit_instructions: str) -> str:
     logger.info("Merging user edits into LaTeX")
     
     prompt = (
-        "You are a LaTeX expert. Update the following LaTeX resume based EXACTLY on these instructions.\n\n"
+        "Apply the edits below to this LaTeX resume. Output ONLY the complete updated LaTeX code.\n\n"
         "RULES:\n"
-        "1. Return ONLY the raw updated LaTeX code.\n"
-        "2. Do NOT wrap the code in ```latex blocks.\n"
-        "3. Do NOT include any explanations.\n\n"
-        f"--- INSTRUCTIONS ---\n{edit_instructions}\n\n"
+        "- Do NOT change contact info, projects, or experiences unless explicitly asked.\n"
+        "- Technical Skills section is freely editable.\n"
+        "- Omit empty sections. Use \\href{url}{\\underline{Label}} for links.\n"
+        "- Correct caps: TensorFlow, PyTorch, NumPy, Data Structures and Algorithms.\n"
+        "- \\resumeSubheading takes 4 args. Balance all \\begin/\\end. No markdown wrappers.\n"
+        "- Return the FULL document from \\documentclass to \\end{document}.\n\n"
+        f"--- EDITS ---\n{edit_instructions}\n\n"
         f"--- CURRENT LATEX ---\n{tex_content}\n"
     )
     
     try:
-        response = llm.invoke([HumanMessage(content=prompt)])
-        content = response.content
-        
-        # Clean up
-        if "```latex" in content:
-            content = content.split("```latex")[1].split("```")[0].strip()
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0].strip()
-            
+        response = llm_latex.invoke([HumanMessage(content=prompt)])
+        content = _clean_latex_response(response.content)
+        content = _ensure_latex_complete(content)
         return content
     except Exception as e:
         logger.error(f"Error merging user edits: {e}")

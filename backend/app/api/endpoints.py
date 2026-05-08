@@ -130,11 +130,18 @@ async def get_task_status(task_id: str):
 # ─── Downloads ───────────────────────────────────────────────────────────────
 
 @router.get("/download/pdf/{task_id}")
-async def download_pdf(task_id: str):
+async def download_pdf(task_id: str, download: bool = False):
     file_path = os.path.join(DATA_DIR, f"{task_id}.pdf")
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="PDF not found")
-    return FileResponse(file_path, media_type='application/pdf', filename=f"tailored_resume_{task_id}.pdf")
+    
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="resume_{task_id[:8]}.pdf"'
+    else:
+        headers["Content-Disposition"] = "inline"
+    
+    return FileResponse(file_path, media_type='application/pdf', headers=headers)
 
 
 @router.get("/download/tex/{task_id}")
@@ -142,4 +149,4 @@ async def download_tex(task_id: str):
     file_path = os.path.join(DATA_DIR, f"{task_id}.tex")
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="LaTeX source not found")
-    return FileResponse(file_path, media_type='application/x-tex', filename=f"tailored_resume_{task_id}.tex")
+    return FileResponse(file_path, media_type='text/plain', headers={"Content-Disposition": "inline"})

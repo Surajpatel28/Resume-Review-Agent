@@ -12,32 +12,39 @@ def compile_latex_file(tex_content: str, output_dir: str, filename: str = "main"
     """
     os.makedirs(output_dir, exist_ok=True)
     tex_path = os.path.join(output_dir, f"{filename}.tex")
+    pdf_path = os.path.join(output_dir, f"{filename}.pdf")
     
     with open(tex_path, "w") as f:
         f.write(tex_content)
     
     try:
-        # Run pdflatex with nonstopmode to prevent hanging on errors
-        result = subprocess.run(
-            ["pdflatex", "-interaction=nonstopmode", "-halt-on-error", f"{filename}.tex"],
-            cwd=output_dir,
-            check=False,
-            capture_output=True,
-            timeout=15,
-            text=True
-        )
+        # Run pdflatex twice (for references) with nonstopmode to push through errors
+        for pass_num in range(2):
+            result = subprocess.run(
+                ["pdflatex", "-interaction=nonstopmode", f"{filename}.tex"],
+                cwd=output_dir,
+                check=False,
+                capture_output=True,
+                timeout=30,
+                text=True
+            )
+            logger.info(f"pdflatex pass {pass_num + 1} returned code {result.returncode}")
         
-        if result.returncode == 0:
-            return os.path.join(output_dir, f"{filename}.pdf")
+        # Check if PDF was actually created regardless of return code
+        if os.path.exists(pdf_path):
+            return pdf_path
         else:
-            logger.error(f"pdflatex failed with return code {result.returncode}")
-            logger.error(f"pdflatex stdout: {result.stdout}")
-            logger.error(f"pdflatex stderr: {result.stderr}")
+            logger.error(f"pdflatex did not produce a PDF file")
+            logger.error(f"pdflatex stdout (last 500 chars): {result.stdout[-500:]}")
             return None
             
     except subprocess.TimeoutExpired:
-        logger.error("pdflatex timed out after 15 seconds")
+        logger.error("pdflatex timed out after 30 seconds")
+        # Check if partial PDF exists
+        if os.path.exists(pdf_path):
+            return pdf_path
         return None
     except Exception as e:
         logger.error(f"pdflatex compilation error: {e}")
         return None
+

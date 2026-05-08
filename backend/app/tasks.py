@@ -128,8 +128,15 @@ def fix_resume_task(task_id: str, version_id: int, project_id: int, job_descript
 
         pdf_path = compile_latex_file(tex_content, data_dir, filename=task_id)
 
+        if not pdf_path:
+            return {
+                "status": "failed",
+                "task_id": task_id,
+                "error": "LaTeX compilation failed. The AI may have generated invalid code. Please try again."
+            }
+
         # 4. Save to DB
-        _save_fix_result_sync(version_id, tex_content, pdf_path or "")
+        _save_fix_result_sync(version_id, tex_content, pdf_path)
 
         return {
             "status": "completed",
@@ -164,7 +171,14 @@ def edit_resume_task(task_id: str, project_id: int, version_id: int, instruction
 
         pdf_path = compile_latex_file(new_tex, data_dir, filename=task_id)
 
-        new_version_id = _save_edit_result_sync(project_id, version_id, instructions, new_tex, pdf_path or "")
+        if not pdf_path:
+            return {
+                "status": "failed",
+                "task_id": task_id,
+                "error": "LaTeX compilation failed. Please try a different edit."
+            }
+
+        new_version_id = _save_edit_result_sync(project_id, version_id, instructions, new_tex, pdf_path)
 
         return {
             "status": "completed",
