@@ -3,7 +3,6 @@ FROM python:3.11-slim
 # Install system dependencies for LaTeX and PDF processing
 RUN apt-get update && apt-get install -y \
     build-essential \
-    libpq-dev \
     texlive-latex-recommended \
     texlive-fonts-recommended \
     texlive-latex-extra \

@@ -8,9 +8,21 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.output_parsers import PydanticOutputParser
 from app.core.config import settings
 import os
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+openrouter_client = None
+if settings.OPENROUTER_API_KEY and OpenAI:
+    logger.info("Using OpenRouter API with reasoning capabilities")
+    openrouter_client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=settings.OPENROUTER_API_KEY,
+    )
 
 # Fast LLM for analysis (small, quick)
 if settings.GROQ_API_KEY:
@@ -210,8 +222,44 @@ def edit_latex(tex_content: str, edit_instructions: str) -> str:
     )
     
     try:
-        response = llm_latex.invoke([HumanMessage(content=prompt)])
-        content = _clean_latex_response(response.content)
+        if not openrouter_client:
+            logger.info("OpenRouter not configured; using default LLM for edit_latex.")
+            response = llm_latex.invoke([HumanMessage(content=prompt)])
+            content = _clean_latex_response(response.content)
+            content = _ensure_latex_complete(content)
+            return content
+
+        logger.info("Calling OpenRouter with reasoning enabled for edit_latex (Step 1)")
+        response = openrouter_client.chat.completions.create(
+            model="moonshotai/kimi-k2.6",
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            extra_body={"reasoning": {"enabled": True}}
+        )
+        assistant_message = response.choices[0].message
+
+        messages = [
+            {"role": "user", "content": prompt},
+            {
+                "role": "assistant",
+                "content": assistant_message.content,
+            },
+            {"role": "user", "content": "Are you sure? Think carefully."}
+        ]
+
+        if hasattr(assistant_message, 'reasoning_details'):
+            messages[1]["reasoning_details"] = assistant_message.reasoning_details
+
+        logger.info("Calling OpenRouter with reasoning enabled for edit_latex (Step 2 - Reflection)")
+        response2 = openrouter_client.chat.completions.create(
+            model="moonshotai/kimi-k2.6",
+            messages=messages,
+            extra_body={"reasoning": {"enabled": True}}
+        )
+        content = response2.choices[0].message.content
+
+        content = _clean_latex_response(content)
         content = _ensure_latex_complete(content)
         return content
     except Exception as e:
